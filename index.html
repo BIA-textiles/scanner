@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Barcode Scanner → Excel</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --border: #1e1e2e;
+    --accent: #00ff88;
+    --accent2: #00ccff;
+    --danger: #ff4466;
+    --text: #e0e0f0;
+    --muted: #5a5a7a;
+    --card: #16161f;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,255,136,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,255,136,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 2.5rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .logo-icon {
+    width: 42px;
+    height: 42px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+  }
+
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .subtitle {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    margin-top: 2px;
+  }
+
+  .count-badge {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 0.4rem 1rem;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--accent);
+  }
+
+  /* Main layout */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  @media (max-width: 640px) {
+    .main-grid { grid-template-columns: 1fr; }
+    header { flex-wrap: wrap; gap: 1rem; }
+  }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .card-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .card-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-family: 'Space Mono', monospace;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: all 0.3s;
+  }
+  .status-dot.active {
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* Camera section */
+  .camera-body { padding: 1.25rem; }
+
+  #camera-preview {
+    width: 100%;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #080810;
+    aspect-ratio: 4/3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed var(--border);
+    position: relative;
+  }
+
+  #camera-preview.scanning {
+    border-color: var(--accent);
+    border-style: solid;
+  }
+
+  #camera-preview .placeholder {
+    text-align: center;
+    color: var(--muted);
+  }
+
+  #camera-preview .placeholder .icon { font-size: 3rem; margin-bottom: 0.5rem; }
+  #camera-preview .placeholder p { font-size: 0.8rem; font-family: 'Space Mono', monospace; }
+
+  /* Scan line animation */
+  .scan-line {
+    display: none;
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: scanMove 2s linear infinite;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  #camera-preview.scanning .scan-line { display: block; }
+
+  @keyframes scanMove {
+    0% { top: 10%; }
+    50% { top: 85%; }
+    100% { top: 10%; }
+  }
+
+  /* Buttons */
+  .btn-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+  }
+
+  button {
+    flex: 1;
+    padding: 0.65rem 1rem;
+    border-radius: 10px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+  }
+  .btn-primary:hover { background: #00e07a; transform: translateY(-1px); }
+  .btn-primary:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; }
+
+  .btn-danger {
+    background: transparent;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+  }
+  .btn-danger:hover { background: rgba(255,68,102,0.1); }
+  .btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--accent2); color: var(--accent2); }
+
+  /* Manual input */
+  .manual-body { padding: 1.25rem; }
+
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  input[type="text"], input[type="number"] {
+    width: 100%;
+    padding: 0.7rem 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 0.85rem;
+    outline: none;
+    transition: border 0.2s;
+  }
+
+  input:focus { border-color: var(--accent); }
+  input::placeholder { color: var(--muted); }
+
+  /* Flash message */
+  .flash {
+    display: none;
+    padding: 0.65rem 1rem;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-family: 'Space Mono', monospace;
+    margin-top: 0.75rem;
+    animation: fadeIn 0.3s ease;
+  }
+  .flash.success { background: rgba(0,255,136,0.1); border: 1px solid var(--accent); color: var(--accent); display: block; }
+  .flash.error { background: rgba(255,68,102,0.1); border: 1px solid var(--danger); color: var(--danger); display: block; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+  /* Table */
+  .table-card { margin-bottom: 1.5rem; }
+
+  .table-wrapper {
+    overflow-x: auto;
+    max-height: 340px;
+    overflow-y: auto;
+  }
+
+  /* Scrollbar */
+  .table-wrapper::-webkit-scrollbar { width: 6px; height: 6px; }
+  .table-wrapper::-webkit-scrollbar-track { background: var(--bg); }
+  .table-wrapper::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .table-wrapper::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+
+  thead th {
+    background: var(--surface);
+    padding: 0.8rem 1rem;
+    text-align: left;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    border-bottom: 1px solid var(--border);
+  }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+  }
+
+  tbody tr:hover { background: var(--surface); }
+  tbody tr:last-child { border-bottom: none; }
+
+  td {
+    padding: 0.75rem 1rem;
+    vertical-align: middle;
+  }
+
+  .barcode-cell {
+    font-family: 'Space Mono', monospace;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .type-badge {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 5px;
+    font-size: 0.65rem;
+    font-family: 'Space Mono', monospace;
+    background: rgba(0,204,255,0.1);
+    color: var(--accent2);
+    border: 1px solid rgba(0,204,255,0.2);
+    text-transform: uppercase;
+  }
+
+  .delete-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0.3rem;
+    border-radius: 6px;
+    font-size: 1rem;
+    transition: all 0.2s;
+    flex: unset;
+    width: auto;
+  }
+  .delete-btn:hover { color: var(--danger); background: rgba(255,68,102,0.1); }
+
+  .empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--muted);
+  }
+  .empty-state .icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+  .empty-state p { font-family: 'Space Mono', monospace; font-size: 0.8rem; }
+
+  /* Actions bar */
+  .actions-bar {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .btn-export {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #000;
+    font-weight: 700;
+    padding: 0.75rem 1.75rem;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    flex: unset;
+  }
+  .btn-export:hover { opacity: 0.9; transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,255,136,0.3); }
+  .btn-export:disabled { opacity: 0.3; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  .btn-clear-all {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 0.75rem 1.25rem;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    flex: unset;
+  }
+  .btn-clear-all:hover { color: var(--danger); border-color: var(--danger); }
+
+  /* Qty controls */
+  .qty-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .qty-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: unset;
+    padding: 0;
+    transition: all 0.15s;
+  }
+  .qty-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .qty-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.85rem;
+    min-width: 28px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="logo">
+      <div class="logo-icon">📷</div>
+      <div>
+        <h1>SCAN → EXCEL</h1>
+        <div class="subtitle">Barcode & QR Scanner</div>
+      </div>
+    </div>
+    <div class="count-badge" id="count-badge">0 records</div>
+  </header>
+
+  <div class="main-grid">
+    <!-- Camera Card -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Camera Scanner</span>
+        <div class="status-dot" id="status-dot"></div>
+      </div>
+      <div class="camera-body">
+        <div id="camera-preview" class="">
+          <div class="placeholder" id="cam-placeholder">
+            <div class="icon">📷</div>
+            <p>Camera not active</p>
+          </div>
+          <div class="scan-line" id="scan-line"></div>
+          <div id="reader" style="width:100%"></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn-primary" id="start-btn" onclick="startScanner()">▶ Start Camera</button>
+          <button class="btn-danger" id="stop-btn" onclick="stopScanner()" disabled>■ Stop</button>
+        </div>
+        <div id="last-scan" class="flash"></div>
+      </div>
+    </div>
+
+    <!-- Manual Entry Card -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Manual Entry</span>
+        <span style="font-size:1rem">⌨️</span>
+      </div>
+      <div class="manual-body">
+        <div class="input-group">
+          <label>Barcode / QR Value</label>
+          <input type="text" id="manual-barcode" placeholder="Enter barcode value..." />
+        </div>
+        <div class="input-group">
+          <label>Product Name (optional)</label>
+          <input type="text" id="manual-name" placeholder="Product name..." />
+        </div>
+        <div class="input-group">
+          <label>Quantity</label>
+          <input type="number" id="manual-qty" placeholder="1" min="1" value="1" />
+        </div>
+        <div class="input-group">
+          <label>Notes (optional)</label>
+          <input type="text" id="manual-notes" placeholder="Any notes..." />
+        </div>
+        <button class="btn-secondary" onclick="addManual()" style="width:100%;flex:unset">+ Add Entry</button>
+        <div id="manual-flash" class="flash"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Table Card -->
+  <div class="card table-card">
+    <div class="card-header">
+      <span class="card-title">Scanned Records</span>
+      <span style="font-size:0.75rem;color:var(--muted);font-family:'Space Mono',monospace" id="table-subtitle">–</span>
+    </div>
+    <div class="table-wrapper">
+      <table id="records-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Barcode Value</th>
+            <th>Format</th>
+            <th>Product Name</th>
+            <th>Qty</th>
+            <th>Notes</th>
+            <th>Timestamp</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="records-body">
+          <tr>
+            <td colspan="8">
+              <div class="empty-state">
+                <div class="icon">🔍</div>
+                <p>No records yet. Start scanning or add entries manually.</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions-bar">
+    <button class="btn-clear-all" onclick="clearAll()" id="clear-btn" disabled>🗑 Clear All</button>
+    <button class="btn-export" onclick="exportToExcel()" id="export-btn" disabled>⬇ Export to Excel</button>
+  </div>
+
+</div>
+
+<script>
+  let scanner = null;
+  let records = [];
+  let scannerRunning = false;
+
+  // ── Scanner ──────────────────────────────────────────────
+  async function startScanner() {
+    const preview = document.getElementById('camera-preview');
+    const placeholder = document.getElementById('cam-placeholder');
+
+    document.getElementById('start-btn').disabled = true;
+    document.getElementById('stop-btn').disabled = false;
+    document.getElementById('status-dot').classList.add('active');
+    preview.classList.add('scanning');
+    placeholder.style.display = 'none';
+
+    scanner = new Html5Qrcode("reader");
+
+    try {
+      await scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 220, height: 160 } },
+        onScanSuccess,
+        () => {}
+      );
+      scannerRunning = true;
+    } catch (err) {
+      showFlash('last-scan', '❌ Camera error: ' + err, 'error');
+      stopScanner();
+    }
+  }
+
+  async function stopScanner() {
+    if (scanner && scannerRunning) {
+      try { await scanner.stop(); } catch (e) {}
+      scanner = null;
+      scannerRunning = false;
+    }
+    document.getElementById('start-btn').disabled = false;
+    document.getElementById('stop-btn').disabled = true;
+    document.getElementById('status-dot').classList.remove('active');
+    document.getElementById('camera-preview').classList.remove('scanning');
+    document.getElementById('cam-placeholder').style.display = 'flex';
+  }
+
+  function onScanSuccess(decodedText, decodedResult) {
+    const format = decodedResult?.result?.format?.formatName || 'QR_CODE';
+    addRecord(decodedText, format, '', 1, 'Camera Scan');
+    showFlash('last-scan', `✓ Scanned: ${decodedText}`, 'success');
+
+    // Brief pause to prevent duplicate
+    if (scanner && scannerRunning) {
+      scanner.pause(true);
+      setTimeout(() => {
+        if (scanner && scannerRunning) scanner.resume();
+      }, 1500);
+    }
+  }
+
+  // ── Manual Entry ─────────────────────────────────────────
+  function addManual() {
+    const val = document.getElementById('manual-barcode').value.trim();
+    if (!val) { showFlash('manual-flash', '⚠ Barcode value is required.', 'error'); return; }
+
+    const name = document.getElementById('manual-name').value.trim();
+    const qty = parseInt(document.getElementById('manual-qty').value) || 1;
+    const notes = document.getElementById('manual-notes').value.trim();
+
+    addRecord(val, 'MANUAL', name, qty, notes);
+    showFlash('manual-flash', `✓ Added: ${val}`, 'success');
+
+    document.getElementById('manual-barcode').value = '';
+    document.getElementById('manual-name').value = '';
+    document.getElementById('manual-qty').value = '1';
+    document.getElementById('manual-notes').value = '';
+  }
+
+  document.getElementById('manual-barcode').addEventListener('keydown', e => {
+    if (e.key === 'Enter') addManual();
+  });
+
+  // ── Records ───────────────────────────────────────────────
+  function addRecord(barcode, format, name, qty, notes) {
+    const record = {
+      id: Date.now(),
+      barcode,
+      format,
+      name: name || '',
+      qty,
+      notes: notes || '',
+      timestamp: new Date().toLocaleString()
+    };
+    records.push(record);
+    renderTable();
+    updateControls();
+  }
+
+  function deleteRecord(id) {
+    records = records.filter(r => r.id !== id);
+    renderTable();
+    updateControls();
+  }
+
+  function changeQty(id, delta) {
+    const rec = records.find(r => r.id === id);
+    if (rec) {
+      rec.qty = Math.max(1, rec.qty + delta);
+      renderTable();
+    }
+  }
+
+  function clearAll() {
+    if (records.length === 0) return;
+    if (!confirm('Clear all records?')) return;
+    records = [];
+    renderTable();
+    updateControls();
+  }
+
+  function renderTable() {
+    const tbody = document.getElementById('records-body');
+    const subtitle = document.getElementById('table-subtitle');
+
+    if (records.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="icon">🔍</div><p>No records yet. Start scanning or add entries manually.</p></div></td></tr>`;
+      subtitle.textContent = '–';
+      return;
+    }
+
+    subtitle.textContent = records.length + ' record' + (records.length !== 1 ? 's' : '');
+    tbody.innerHTML = records.map((r, i) => `
+      <tr>
+        <td style="color:var(--muted);font-family:'Space Mono',monospace;font-size:0.75rem">${i + 1}</td>
+        <td class="barcode-cell">${escHtml(r.barcode)}</td>
+        <td><span class="type-badge">${escHtml(r.format)}</span></td>
+        <td>${escHtml(r.name) || '<span style="color:var(--muted)">—</span>'}</td>
+        <td>
+          <div class="qty-row">
+            <button class="qty-btn" onclick="changeQty(${r.id}, -1)">−</button>
+            <span class="qty-val">${r.qty}</span>
+            <button class="qty-btn" onclick="changeQty(${r.id}, 1)">+</button>
+          </div>
+        </td>
+        <td style="color:var(--muted)">${escHtml(r.notes) || '—'}</td>
+        <td style="font-family:'Space Mono',monospace;font-size:0.72rem;color:var(--muted);white-space:nowrap">${r.timestamp}</td>
+        <td><button class="delete-btn" onclick="deleteRecord(${r.id})" title="Delete">✕</button></td>
+      </tr>
+    `).join('');
+
+    // Auto-scroll to latest
+    const wrapper = document.querySelector('.table-wrapper');
+    wrapper.scrollTop = wrapper.scrollHeight;
+  }
+
+  function updateControls() {
+    const has = records.length > 0;
+    document.getElementById('export-btn').disabled = !has;
+    document.getElementById('clear-btn').disabled = !has;
+    document.getElementById('count-badge').textContent = records.length + ' record' + (records.length !== 1 ? 's' : '');
+  }
+
+  // ── Export ────────────────────────────────────────────────
+  function exportToExcel() {
+    if (records.length === 0) return;
+
+    const wb = XLSX.utils.book_new();
+
+    // Data sheet
+    const headers = ['#', 'Barcode Value', 'Format', 'Product Name', 'Quantity', 'Notes', 'Timestamp'];
+    const rows = records.map((r, i) => [
+      i + 1,
+      r.barcode,
+      r.format,
+      r.name || '',
+      r.qty,
+      r.notes || '',
+      r.timestamp
+    ]);
+
+    const wsData = [headers, ...rows];
+
+    // Summary row
+    const totalQty = records.reduce((s, r) => s + r.qty, 0);
+    wsData.push([]);
+    wsData.push(['', '', '', 'TOTAL QTY:', totalQty, '', '']);
+    wsData.push(['', '', '', 'Total Items:', records.length, '', '']);
+    wsData.push(['', '', '', 'Export Date:', new Date().toLocaleString(), '', '']);
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Column widths
+    ws['!cols'] = [
+      { wch: 4 }, { wch: 26 }, { wch: 12 }, { wch: 22 },
+      { wch: 10 }, { wch: 24 }, { wch: 22 }
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Scanned Barcodes');
+
+    // Stats sheet
+    const formats = {};
+    records.forEach(r => { formats[r.format] = (formats[r.format] || 0) + 1; });
+    const statsData = [
+      ['Format', 'Count'],
+      ...Object.entries(formats).map(([k, v]) => [k, v]),
+      [],
+      ['Total Records', records.length],
+      ['Total Quantity', totalQty],
+      ['Export Date', new Date().toLocaleString()]
+    ];
+    const wsStats = XLSX.utils.aoa_to_sheet(statsData);
+    wsStats['!cols'] = [{ wch: 18 }, { wch: 10 }];
+    XLSX.utils.book_append_sheet(wb, wsStats, 'Summary');
+
+    const now = new Date();
+    const fname = `barcodes_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}.xlsx`;
+    XLSX.writeFile(wb, fname);
+  }
+
+  // ── Helpers ───────────────────────────────────────────────
+  function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function showFlash(id, msg, type) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = 'flash ' + type;
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.className = 'flash'; }, 3500);
+  }
+</script>
+</body>
+</html>
